@@ -77,6 +77,7 @@ main {
   align-items: center;
   gap: 10px;
   width: 100%;
+  margin-top: 10px;
 }
 #timelineRange {
   flex: 1; 
@@ -97,6 +98,23 @@ main {
   width: 50px;
   text-align: center;
   font-family: monospace;
+}
+
+/* Player Buttons */
+#playerButtons {
+  margin-top: 10px;
+}
+#playerButtons button {
+  background: #444;
+  color: #ddd;
+  border: 1px solid #555;
+  padding: 8px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin: 0 5px;
+}
+#playerButtons button:hover {
+  background: #555;
 }
 
 /* ========== Controls & Canvas ========== */
@@ -167,18 +185,4 @@ select {
 /* Footer */
 footer p {
   margin-top: 20px;
-}
-
-/* (OPTIONAL) Style for fallback Play-Button */
-#manualPlayBtn {
-  background: #444;
-  color: #ddd;
-  border: 1px solid #555;
-  padding: 8px 14px;
-  border-radius: 4px;
-  cursor: pointer;
-  margin-top: 10px;
-}
-#manualPlayBtn:hover {
-  background: #555;
 }

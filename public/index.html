@@ -2,12 +2,12 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <title>AuTune Pro</title>
+  <title>AuTune</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header>
-    <h1>AuTune Pro</h1>
+    <h1>AuTune</h1>
   </header>
   
   <main>
@@ -16,11 +16,13 @@
       <h2>Datei hochladen oder reinziehen</h2>
       <input type="file" id="fileInput" accept="audio/*">
       <div id="dropZone">Drag &amp; Drop Zone</div>
+      <!-- Label für den Dateinamen -->
+      <div id="fileNameLabel" style="margin-top:10px; color:#bbb; font-style:italic;"></div>
     </div>
 
     <!-- Player- und Timeline-Bereich -->
     <section id="playerSection">
-      <!-- Unser eigenes Audio-Element -->
+      <!-- Unser Audio-Element -->
       <audio id="audioPlayer"></audio>
       
       <!-- Timeline + Zeit-Anzeige -->
@@ -30,8 +32,10 @@
         <span id="durationLabel">0:00</span>
       </div>
 
-      <!-- (OPTIONAL) Manuelle Play-Taste nur zur Sicherheit -->
-      <button id="manualPlayBtn" style="margin-top:10px;">Play (Fallback)</button>
+      <!-- Buttons -->
+      <div id="playerButtons">
+        <button id="togglePlayBtn">Play</button>
+      </div>
     </section>
 
     <!-- Controls für Animation / Farbe / Größe / Sensitivität -->
@@ -79,7 +83,7 @@
   </main>
 
   <footer>
-    <p>&copy; 2025 AuTune Pro - All rights reserved.</p>
+    <p>&copy; 2025 AuTune - All rights reserved.</p>
   </footer>
 
   <script src="app.js"></script>

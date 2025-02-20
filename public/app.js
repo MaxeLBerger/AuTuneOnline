@@ -1,29 +1,30 @@
 // public/app.js
 
-// DOM-Elemente
 let audioContext;
 let analyser;
 let dataArray;
 let bufferLength;
 
+// File/UI Elements
 const fileInput         = document.getElementById('fileInput');
+const fileNameLabel     = document.getElementById('fileNameLabel');
 const dropZone          = document.getElementById('dropZone');
 const audioPlayer       = document.getElementById('audioPlayer');
 const timelineRange     = document.getElementById('timelineRange');
 const currentTimeLabel  = document.getElementById('currentTimeLabel');
 const durationLabel     = document.getElementById('durationLabel');
+const togglePlayBtn     = document.getElementById('togglePlayBtn');
 
+// Settings
 const bpmDisplay        = document.getElementById('bpmDisplay');
 const animationSelect   = document.getElementById('animationSelect');
 const colorSelect       = document.getElementById('colorSelect');
 const sensitivityRange  = document.getElementById('sensitivityRange');
 const sizeRange         = document.getElementById('sizeRange');
 
+// Canvas
 const canvas            = document.getElementById('visualizerCanvas');
 const canvasCtx         = canvas.getContext('2d');
-
-// (OPTIONAL) Manuelle Playtaste (Fallback)
-const manualPlayBtn     = document.getElementById('manualPlayBtn');
 
 // State
 let currentAnimation = 'bars';
@@ -31,11 +32,11 @@ let currentColorMode = 'rainbow';
 let sensitivity      = 2;   // [1..5]
 let animationSize    = 1;   // [0.5..4]
 let animationId;
+let isSeeking        = false;
+let songLoaded       = false;
+let isPlaying        = false; // Für den Toggle-Button
 
-let isSeeking        = false; // ob wir gerade am Timeline-Slider „ziehen“
-let songLoaded       = false; // ob Audio-Datei erfolgreich geladen wurde
-
-// ===================== DRAG & DROP =====================
+// ========== DRAG & DROP ==========
 dropZone.addEventListener('dragover', (e) => {
   e.preventDefault();
   dropZone.classList.add('dragover');
@@ -52,14 +53,14 @@ dropZone.addEventListener('drop', (e) => {
   }
 });
 
-// ===================== FILE INPUT =====================
+// ========== FILE INPUT ==========
 fileInput.addEventListener('change', (e) => {
   if (e.target.files.length) {
     handleFile(e.target.files[0]);
   }
 });
 
-// ===================== TIMELINE RANGE EVENTS =====================
+// ========== TIMELINE ==========
 timelineRange.addEventListener('mousedown', () => {
   isSeeking = true;
 });
@@ -75,7 +76,30 @@ timelineRange.addEventListener('input', () => {
   }
 });
 
-// ===================== SETTINGS =====================
+// ========== PLAY / PAUSE BUTTON ==========
+togglePlayBtn.addEventListener('click', () => {
+  if (!songLoaded) {
+    console.warn('Kein Song geladen, kann nicht abspielen/pausieren.');
+    return;
+  }
+  if (audioPlayer.paused) {
+    audioPlayer.play().then(() => {
+      isPlaying = true;
+      togglePlayBtn.textContent = 'Pause';
+      console.log('Manuell Play geklickt');
+    }).catch(err => {
+      console.error('Play fehlgeschlagen:', err);
+    });
+  } else {
+    // Pause
+    audioPlayer.pause();
+    isPlaying = false;
+    togglePlayBtn.textContent = 'Play';
+    console.log('Manuell Pause geklickt');
+  }
+});
+
+// ========== SETTINGS ==========
 animationSelect.addEventListener('change', (e) => {
   currentAnimation = e.target.value;
 });
@@ -89,56 +113,46 @@ sizeRange.addEventListener('input', (e) => {
   animationSize = parseFloat(e.target.value);
 });
 
-// (OPTIONAL) Manuelle Playtaste
-manualPlayBtn.addEventListener('click', () => {
-  if (!songLoaded) {
-    console.warn('Es ist noch kein Song geladen!');
-    return;
-  }
-  audioPlayer.play().then(() => {
-    console.log('Manuell abgespielt');
-  }).catch(err => {
-    console.error('Fehler beim Play:', err);
-  });
-});
-
-// ===================== HANDLE FILE =====================
+// ========== HANDLE FILE ==========
 async function handleFile(file) {
   if (!file) return;
 
-  // Schließe alten AudioContext
+  // Zeige Dateiname
+  fileNameLabel.textContent = `Aktuelle Datei: ${file.name}`;
+
+  // Falls noch ein AudioContext offen, schließen
   if (audioContext) {
     audioContext.close();
   }
   audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
-  // Vorige Animation stoppen
+  // Alte Animation stoppen
   if (animationId) {
     cancelAnimationFrame(animationId);
   }
 
-  // Datei in ArrayBuffer
+  // ArrayBuffer einlesen
   const arrayBuffer = await file.arrayBuffer();
 
-  // (1) BPM ermitteln
+  // BPM ermitteln (Fehler abfangen)
   let bpm = 0;
   try {
-    const audioBufferForBPM = await audioContext.decodeAudioData(arrayBuffer.slice(0)); 
+    const audioBufferForBPM = await audioContext.decodeAudioData(arrayBuffer.slice(0));
     bpm = getBPMFromAudioBuffer(audioBufferForBPM, audioContext.sampleRate);
     bpmDisplay.textContent = `BPM: ${bpm.toFixed(1)}`;
   } catch (err) {
-    console.warn('decodeAudioData fehlgeschlagen. BPM kann nicht ermittelt werden.', err);
+    console.warn('BPM-Analyse fehlgeschlagen:', err);
     bpm = 0;
     bpmDisplay.textContent = `BPM: 0`;
   }
 
-  // (2) Audio-Player versorgen
+  // Blob-URL für <audio>
   const blob = new Blob([arrayBuffer], { type: file.type });
   const url = URL.createObjectURL(blob);
   audioPlayer.src = url;
   audioPlayer.load();
 
-  // AUDIO-Kette: <audio> -> Analyser -> Output
+  // Analyser
   const sourceNode = audioContext.createMediaElementSource(audioPlayer);
   analyser = audioContext.createAnalyser();
   analyser.fftSize = 512;
@@ -149,33 +163,32 @@ async function handleFile(file) {
   bufferLength = analyser.frequencyBinCount;
   dataArray = new Uint8Array(bufferLength);
 
-  // Flag: Song (theoretisch) geladen
   songLoaded = true;
 
-  // (3) Wenn Audio metadaten hat, Timeline setzen
+  // Sobald Metadaten geladen -> Duration, Zeitupdates
   audioPlayer.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
 
-  // (4) Autostart versuchen
+  // Autostart versuchen
   audioPlayer.play().then(() => {
-    console.log('Autoplay erfolgreich gestartet');
+    isPlaying = true;
+    togglePlayBtn.textContent = 'Pause';
+    console.log('Autoplay ok');
   }).catch(err => {
-    console.warn('Autoplay wurde blockiert oder schlug fehl:', err);
+    console.warn('Autoplay blockiert oder fehlgeschlagen:', err);
+    togglePlayBtn.textContent = 'Play';
   });
 
-  // (5) Start Animation
+  // Animation starten
   animate(bpm);
 }
 
 function onLoadedMetadata() {
   if (audioPlayer.duration && audioPlayer.duration !== Infinity) {
-    // Gültige Duration
     timelineRange.max = Math.floor(audioPlayer.duration);
     durationLabel.textContent = formatTime(audioPlayer.duration);
   } else {
-    console.warn('Audio-Dauer konnte nicht bestimmt werden (evtl. nicht unterstützt?).');
+    console.warn('Audio-Dauer konnte nicht ermittelt werden.');
   }
-
-  // Zeitupdate -> Timeline
   audioPlayer.addEventListener('timeupdate', onTimeUpdate);
 }
 
@@ -187,7 +200,7 @@ function onTimeUpdate() {
   }
 }
 
-// ===================== BPM DETECTION =====================
+// ========== BPM ==========
 function getBPMFromAudioBuffer(audioBuffer, sampleRate) {
   const channelData = audioBuffer.getChannelData(0);
   return calcBPM(channelData, sampleRate);
@@ -233,11 +246,11 @@ function calcBPM(channelData, sampleRate) {
   return 60 / avgInterval;
 }
 
-// ===================== ANIMATION LOOP =====================
+// ========== ANIMATION LOOP ==========
 function animate(bpm) {
   animationId = requestAnimationFrame(() => animate(bpm));
 
-  if (!analyser) return; // falls noch nicht initialisiert
+  if (!analyser) return; 
 
   analyser.getByteFrequencyData(dataArray);
   resizeCanvasToDisplaySize(canvas);
@@ -269,14 +282,13 @@ function animate(bpm) {
   }
 }
 
-// ===================== VERSCHIEDENE ANIMATIONEN =====================
-
-// Bars
+// ========== ANIMATIONS ==========
 function drawBarsScene(data, bpm) {
   const barWidth = (canvas.width / bufferLength) * 2.0;
   let posX = 0;
   for (let i = 0; i < bufferLength; i++) {
-    const barHeight = data[i] * animationSize;
+    // Sensitivity * animationSize
+    const barHeight = data[i] * animationSize * sensitivity;
     const [r, g, b] = getColor(i, barHeight, bufferLength);
     canvasCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
     canvasCtx.fillRect(posX, canvas.height - barHeight, barWidth, barHeight);
@@ -311,11 +323,12 @@ class Particle {
 
 function drawParticlesScene(data, bpm) {
   let bassValue = getBassValue(data);
+  // CreationChance -> vergrößert mit Sensitivity
   let creationChance = 0.03 * sensitivity + bpm / 4000;
   if (Math.random() < creationChance) {
     let x = Math.random() * canvas.width;
     let y = canvas.height - 10;
-    let size = (Math.random() * 8 + 4) * animationSize;
+    let size = (Math.random() * 8 + 4) * animationSize * sensitivity * 0.5;
     let velocity = (1 + bassValue / 50) * sensitivity;
     particleArray.push(new Particle(x, y, size, velocity));
   }
@@ -332,12 +345,11 @@ function drawParticlesScene(data, bpm) {
   }
 }
 
-// Circles
 function drawCirclesScene(data, bpm) {
   let centerX = canvas.width / 2;
   let centerY = canvas.height / 2;
   for (let i = 0; i < bufferLength; i += 8) {
-    let value = data[i] * animationSize;
+    let value = data[i] * animationSize * sensitivity;
     let [r, g, b] = getColor(i, value, bufferLength);
     canvasCtx.beginPath();
     canvasCtx.arc(centerX, centerY, value, 0, 2 * Math.PI);
@@ -347,12 +359,11 @@ function drawCirclesScene(data, bpm) {
   }
 }
 
-// Wave
 function drawWaveScene(data, bpm) {
   canvasCtx.beginPath();
   for (let i = 0; i < bufferLength; i++) {
     let x = (i / (bufferLength - 1)) * canvas.width;
-    let y = canvas.height / 2 - data[i] * 0.8 * animationSize;
+    let y = canvas.height / 2 - data[i] * 0.8 * animationSize * sensitivity;
     if (i === 0) canvasCtx.moveTo(x, y);
     else canvasCtx.lineTo(x, y);
   }
@@ -361,58 +372,77 @@ function drawWaveScene(data, bpm) {
   canvasCtx.stroke();
 }
 
-// Spiral
 function drawSpiralScene(data, bpm) {
   let centerX = canvas.width / 2;
   let centerY = canvas.height / 2;
+
+  // Bisschen aufteilen für mehr Dynamik
   let angleStep = (2 * Math.PI) / bufferLength;
-  let radiusStep = (Math.min(centerX, centerY) / bufferLength) * animationSize;
+  let maxRadius = Math.min(centerX, centerY);
+  // Normaler Radius pro Index
+  let baseRadiusStep = (maxRadius / bufferLength) * animationSize;
+
   canvasCtx.beginPath();
 
   for (let i = 0; i < bufferLength; i++) {
-    let angle = i * angleStep * (1 + bpm / 120);
-    let radius = i * radiusStep;
+    let freqVal = data[i] * 0.5 * sensitivity;
+    // Spiral-Radius + Frequenz-Effekt
+    let radius = i * baseRadiusStep + freqVal * 0.3;
+
+    // BPM-Einfluss auf die Rotation
+    let angle = i * angleStep + (bpm / 180) * i * 0.01;
     let x = centerX + radius * Math.cos(angle);
     let y = centerY + radius * Math.sin(angle);
 
-    if (i === 0) canvasCtx.moveTo(x, y);
-    else canvasCtx.lineTo(x, y);
-
-    let [r, g, b] = getColor(i, data[i], bufferLength);
+    if (i === 0) {
+      canvasCtx.moveTo(x, y);
+    } else {
+      canvasCtx.lineTo(x, y);
+    }
+    let [r, g, b] = getColor(i, freqVal, bufferLength);
     canvasCtx.strokeStyle = `rgb(${r}, ${g}, ${b})`;
     canvasCtx.lineWidth = 2;
   }
   canvasCtx.stroke();
 }
 
-// Grid
 function drawGridScene(data, bpm) {
-  let cellsPerRow = Math.floor(Math.sqrt(bufferLength));
+  // Wir machen das Grid etwas feiner
+  // Bisher: sqrt(bufferLength) => 16 bei 256 => 16x16 Raster
+  // => Wir erhöhen es, z.B. * sensitivity
+  let baseCells = Math.floor(Math.sqrt(bufferLength));
+  let cellsPerRow = baseCells + Math.floor(sensitivity * 4); // je höher sensitivity, desto mehr Zellen
+
   let cellWidth = canvas.width / cellsPerRow;
   let cellHeight = canvas.height / cellsPerRow;
 
   let index = 0;
   for (let row = 0; row < cellsPerRow; row++) {
     for (let col = 0; col < cellsPerRow; col++) {
-      if (index >= bufferLength) break;
-      let val = data[index] * animationSize;
+      if (index >= data.length) index = 0; 
+      // Wir loopen durch data (kann man anpassen)
+
+      let val = data[index] * animationSize * sensitivity;
       let [r, g, b] = getColor(index, val, bufferLength);
-      canvasCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${val / 255})`;
+      let alpha = Math.min(1, val / 255 + 0.1);
+
+      canvasCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
       canvasCtx.fillRect(col * cellWidth, row * cellHeight, cellWidth, cellHeight);
+
       index++;
     }
   }
 }
 
-// Radial Lines
 function drawRadialLinesScene(data, bpm) {
   let centerX = canvas.width / 2;
   let centerY = canvas.height / 2;
   let angleStep = (2 * Math.PI) / bufferLength;
 
   for (let i = 0; i < bufferLength; i += 2) {
-    let val = data[i] * animationSize;
+    let val = data[i] * animationSize * sensitivity;
     let angle = i * angleStep;
+
     let [r, g, b] = getColor(i, val, bufferLength);
     canvasCtx.beginPath();
     canvasCtx.moveTo(centerX, centerY);
@@ -426,7 +456,7 @@ function drawRadialLinesScene(data, bpm) {
   }
 }
 
-// ===================== HELPER FUNKTIONEN =====================
+// ========== HELPER ==========
 function resizeCanvasToDisplaySize(canvas) {
   const width = canvas.clientWidth | 0;
   const height = canvas.clientHeight | 0;
@@ -460,6 +490,7 @@ function getColor(index, amplitude, total) {
   }
 }
 
+// Farbmodi ...
 function rainbowColor(i, val, total) {
   let hue = (360 * i) / total;
   return hslToRgb(hue, 100, 50 + val / 5);
@@ -481,14 +512,12 @@ function darkColor(i, val, total) {
   return hslToRgb(hue, 60, 20);
 }
 
-/** HSL -> RGB **/
+// HSL->RGB ...
 function hslToRgb(h, s, l) {
-  h /= 360;
-  s /= 100;
-  l /= 100;
+  h /= 360; s /= 100; l /= 100;
   let r, g, b;
   if (s === 0) {
-    r = g = b = l; // grau
+    r = g = b = l;
   } else {
     const hue2rgb = (p, q, t) => {
       if (t < 0) t += 1;
@@ -499,7 +528,7 @@ function hslToRgb(h, s, l) {
       return p;
     };
     const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-    const p = 2 * l - q;
+    const p = 2*l - q;
     r = hue2rgb(p, q, h + 1/3);
     g = hue2rgb(p, q, h);
     b = hue2rgb(p, q, h - 1/3);
@@ -507,7 +536,7 @@ function hslToRgb(h, s, l) {
   return [
     Math.round(r * 255),
     Math.round(g * 255),
-    Math.round(b * 255),
+    Math.round(b * 255)
   ];
 }
 
