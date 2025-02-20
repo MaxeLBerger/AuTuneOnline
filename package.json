@@ -1,0 +1,17 @@
+{
+    "name": "autuneonline",
+    "version": "1.0.0",
+    "description": "Professioneller Audio-Visualizer mit BPM-Erkennung",
+    "main": "server.js",
+    "scripts": {
+      "start": "node server.js"
+    },
+    "keywords": ["audio", "visualizer", "bpm", "music", "node", "express"],
+    "author": "Dein Name",
+    "license": "MIT",
+    "dependencies": {
+      "express": "^4.18.2",
+      "music-tempo": "^1.0.3"
+    }
+  }
+  

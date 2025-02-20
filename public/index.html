@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>AuTune Pro</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>AuTune Pro</h1>
+  </header>
+  
+  <main>
+    <!-- Upload-Bereich (groß) -->
+    <div id="uploadSection">
+      <h2>Datei hochladen oder reinziehen</h2>
+      <input type="file" id="fileInput" accept="audio/*">
+      <div id="dropZone">Drag &amp; Drop Zone</div>
+    </div>
+
+    <!-- Player- und Timeline-Bereich -->
+    <section id="playerSection">
+      <!-- Unser eigenes Audio-Element -->
+      <audio id="audioPlayer"></audio>
+      
+      <!-- Timeline + Zeit-Anzeige -->
+      <div id="timelineContainer">
+        <span id="currentTimeLabel">0:00</span>
+        <input type="range" id="timelineRange" value="0" min="0" max="100" step="1">
+        <span id="durationLabel">0:00</span>
+      </div>
+
+      <!-- (OPTIONAL) Manuelle Play-Taste nur zur Sicherheit -->
+      <button id="manualPlayBtn" style="margin-top:10px;">Play (Fallback)</button>
+    </section>
+
+    <!-- Controls für Animation / Farbe / Größe / Sensitivität -->
+    <section id="controlsSection">
+      <div id="settingsRow">
+        <div id="selectControls">
+          <label for="animationSelect">Animation:</label>
+          <select id="animationSelect">
+            <option value="bars">Bars</option>
+            <option value="particles">Particles</option>
+            <option value="circles">Circles</option>
+            <option value="wave">Wave</option>
+            <option value="spiral">Spiral</option>
+            <option value="grid">Grid</option>
+            <option value="radialLines">Radial Lines</option>
+          </select>
+
+          <label for="colorSelect">Farbschema:</label>
+          <select id="colorSelect">
+            <option value="rainbow">Rainbow</option>
+            <option value="warm">Warm</option>
+            <option value="cool">Cool</option>
+            <option value="happy">Happy</option>
+            <option value="dark">Dark</option>
+          </select>
+        </div>
+
+        <div id="rangeControls">
+          <label for="sensitivityRange">Sensitivität:</label>
+          <input type="range" id="sensitivityRange" min="1" max="5" step="0.1" value="2">
+
+          <label for="sizeRange">Größe:</label>
+          <input type="range" id="sizeRange" min="0.5" max="4" step="0.1" value="1">
+        </div>
+      </div>
+
+      <div id="infoRow">
+        <p id="bpmDisplay">BPM: --</p>
+      </div>
+
+      <div id="canvasContainer">
+        <canvas id="visualizerCanvas"></canvas>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>&copy; 2025 AuTune Pro - All rights reserved.</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

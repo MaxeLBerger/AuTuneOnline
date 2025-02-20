@@ -1,0 +1,184 @@
+/* style.css */
+
+/* Reset/Grundlayout */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+body {
+  background-color: #1f1f1f;
+  color: #ddd;
+  font-family: "Open Sans", sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+header, footer {
+  text-align: center;
+  padding: 20px;
+  background: #333;
+}
+header h1 {
+  font-size: 2em;
+}
+main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+}
+
+/* ========== Upload-Section (Groß) ========== */
+#uploadSection {
+  width: 80%;
+  max-width: 800px;
+  background: #2f2f2f;
+  border: 2px dashed #555;
+  border-radius: 8px;
+  text-align: center;
+  margin-bottom: 20px;
+  padding: 30px 20px;
+}
+#uploadSection h2 {
+  margin-bottom: 15px;
+}
+#fileInput {
+  display: block;
+  margin: 0 auto 10px;
+}
+#dropZone {
+  margin: 10px auto;
+  padding: 40px 20px;
+  border: 2px dashed #888;
+  border-radius: 5px;
+  font-size: 1em;
+  color: #aaa;
+}
+#dropZone.dragover {
+  border-color: #0f0;
+  color: #0f0;
+}
+
+/* ========== Player Section ========== */
+#playerSection {
+  width: 80%;
+  max-width: 800px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Timeline */
+#timelineContainer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+#timelineRange {
+  flex: 1; 
+  appearance: none;
+  height: 5px;
+  background: #444;
+  cursor: pointer;
+}
+#timelineRange::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ccc;
+  cursor: pointer;
+}
+#currentTimeLabel, #durationLabel {
+  width: 50px;
+  text-align: center;
+  font-family: monospace;
+}
+
+/* ========== Controls & Canvas ========== */
+#controlsSection {
+  width: 90%;
+  max-width: 1200px;
+}
+
+#settingsRow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+#selectControls, 
+#rangeControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 5px 0;
+}
+
+label {
+  font-weight: bold;
+  margin-right: 5px;
+}
+
+select {
+  background-color: #333;
+  color: #ddd;
+  border: 1px solid #555;
+  padding: 5px 10px;
+  border-radius: 4px;
+}
+
+/* Range Sliders */
+#sensitivityRange,
+#sizeRange {
+  width: 100px;
+}
+
+/* BPM-Anzeige */
+#infoRow {
+  margin-bottom: 10px;
+  text-align: center;
+}
+#bpmDisplay {
+  font-size: 1.2em;
+}
+
+/* Canvas (responsive) */
+#canvasContainer {
+  width: 100%;
+  height: 60vh;
+  border: 1px solid #444;
+  position: relative;
+  background-color: #000;
+}
+#visualizerCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Footer */
+footer p {
+  margin-top: 20px;
+}
+
+/* (OPTIONAL) Style for fallback Play-Button */
+#manualPlayBtn {
+  background: #444;
+  color: #ddd;
+  border: 1px solid #555;
+  padding: 8px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 10px;
+}
+#manualPlayBtn:hover {
+  background: #555;
+}
