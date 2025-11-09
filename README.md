@@ -79,3 +79,5 @@ Damit hast du eine **vollständige**, **professionell strukturierte** Webanwendu
 > **Tipp**: In einem **echten Produktions-Setup** würde man die BPM-Erkennung wahrscheinlich ins Backend (Node.js) legen, da es im Browser teils performancekritisch ist. Man könnte die PCM-Daten (via `ArrayBuffer`) an einen `/analyze`-Endpoint senden, dort `music-tempo` anwenden, das Ergebnis (BPM) zurücksenden und es für die Visualisierung verwenden.  
 
 Viel Erfolg beim **Finalisieren** – du hast jetzt eine **umfangreiche** Codebasis, die deinen Usern schon echt was hermacht!Test auto-update after workflow fix
+
+Testing deploy trigger fix
