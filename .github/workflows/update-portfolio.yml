@@ -1,0 +1,17 @@
+﻿name: Update Portfolio on Push
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  trigger-portfolio-update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Portfolio Submodule Update
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.PORTFOLIO_UPDATE_TOKEN }}
+          repository: MaxeLBerger/MaxeLBerger.github.io
+          event-type: update-submodule
+          client-payload: '{\"submodule\": \"AuTuneOnline\"}'
