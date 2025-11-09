@@ -35,6 +35,7 @@ let animationId;
 let isSeeking        = false;
 let songLoaded       = false;
 let isPlaying        = false; // Für den Toggle-Button
+let timeUpdateBound  = false; // verhindert doppelte Listener
 
 // ========== DRAG & DROP ==========
 dropZone.addEventListener('dragover', (e) => {
@@ -156,6 +157,10 @@ async function handleFile(file) {
   const sourceNode = audioContext.createMediaElementSource(audioPlayer);
   analyser = audioContext.createAnalyser();
   analyser.fftSize = 512;
+  // Stabilere Darstellung & weniger Flackern
+  analyser.smoothingTimeConstant = 0.8;
+  analyser.minDecibels = -90;
+  analyser.maxDecibels = -10;
 
   sourceNode.connect(analyser);
   analyser.connect(audioContext.destination);
@@ -167,6 +172,22 @@ async function handleFile(file) {
 
   // Sobald Metadaten geladen -> Duration, Zeitupdates
   audioPlayer.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
+
+  // Sync UI mit Audio-Element
+  audioPlayer.addEventListener('play', () => {
+    isPlaying = true;
+    togglePlayBtn.textContent = 'Pause';
+  });
+  audioPlayer.addEventListener('pause', () => {
+    isPlaying = false;
+    togglePlayBtn.textContent = 'Play';
+  });
+  audioPlayer.addEventListener('ended', () => {
+    isPlaying = false;
+    togglePlayBtn.textContent = 'Play';
+    timelineRange.value = '0';
+    currentTimeLabel.textContent = formatTime(0);
+  }, { once: true });
 
   // Autostart versuchen
   audioPlayer.play().then(() => {
@@ -189,7 +210,11 @@ function onLoadedMetadata() {
   } else {
     console.warn('Audio-Dauer konnte nicht ermittelt werden.');
   }
+  if (timeUpdateBound) {
+    audioPlayer.removeEventListener('timeupdate', onTimeUpdate);
+  }
   audioPlayer.addEventListener('timeupdate', onTimeUpdate);
+  timeUpdateBound = true;
 }
 
 function onTimeUpdate() {
@@ -333,6 +358,12 @@ function drawParticlesScene(data, bpm) {
     particleArray.push(new Particle(x, y, size, velocity));
   }
 
+  // Performance-Schutz: Obergrenze für Partikel
+  const MAX_PARTICLES = Math.floor(800 * animationSize * sensitivity);
+  if (particleArray.length > MAX_PARTICLES) {
+    particleArray.splice(0, particleArray.length - MAX_PARTICLES);
+  }
+
   for (let i = 0; i < particleArray.length; i++) {
     let p = particleArray[i];
     p.update();
@@ -460,9 +491,13 @@ function drawRadialLinesScene(data, bpm) {
 function resizeCanvasToDisplaySize(canvas) {
   const width = canvas.clientWidth | 0;
   const height = canvas.clientHeight | 0;
-  if (canvas.width !== width || canvas.height !== height) {
-    canvas.width = width;
-    canvas.height = height;
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const displayWidth = Math.floor(width * dpr);
+  const displayHeight = Math.floor(height * dpr);
+  if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
+    canvas.width = displayWidth;
+    canvas.height = displayHeight;
+    canvasCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 }
 
@@ -539,6 +574,18 @@ function hslToRgb(h, s, l) {
     Math.round(b * 255)
   ];
 }
+
+// Responsives Canvas & Touch Unterstützung
+window.addEventListener('resize', () => {
+  if (canvas) resizeCanvasToDisplaySize(canvas);
+});
+
+timelineRange.addEventListener('touchstart', () => { isSeeking = true; }, { passive: true });
+timelineRange.addEventListener('touchend', () => {
+  isSeeking = false;
+  const newTime = parseFloat(timelineRange.value);
+  audioPlayer.currentTime = newTime;
+}, { passive: true });
 
 function formatTime(seconds) {
   seconds = Math.floor(seconds);
