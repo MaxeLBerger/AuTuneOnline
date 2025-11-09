@@ -14,4 +14,4 @@ jobs:
           token: ${{ secrets.PORTFOLIO_UPDATE_TOKEN }}
           repository: MaxeLBerger/MaxeLBerger.github.io
           event-type: update-submodule
-          client-payload: '{\"submodule\": \"AuTuneOnline\"}'
+          client-payload: '{"submodule": "AuTuneOnline"}'
