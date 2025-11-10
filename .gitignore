@@ -3,4 +3,5 @@ node_modules/
 dist/
 .DS_Store
 *.log
-.vscode//node_modules
+.vscode/
+lighthouse-report.json

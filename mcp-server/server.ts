@@ -3,14 +3,27 @@ import express from 'express';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
+// Neue Imports für zusätzliche Tools
+// Dynamische Imports für optionale Tools (vermeidet Typs-Probleme vor Installation)
+// Wir verwenden type-only Deklarationen um Node Builtins zuzulassen.
+// Lighthouse & audio-decode werden später per dynamic import geladen.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let dynamicModules: Record<string, any> = {};
+async function ensureDynamic(name: string) {
+  if (!dynamicModules[name]) {
+    dynamicModules[name] = await import(name);
+  }
+  return dynamicModules[name];
+}
 import fg from 'fast-glob';
-import { readFile } from 'fs/promises';
+import { promises as fsp } from 'fs';
 import path from 'path';
 import { Octokit } from '@octokit/rest';
 import { exec } from 'child_process';
 
 // Basic configuration
-const PROJECT_ROOT = path.resolve(path.join(__dirname, '..'));
+// Projektwurzel: Verwende Arbeitsverzeichnis, da Skript über npm aus dem Repo-Root gestartet wird
+const PROJECT_ROOT = process.cwd();
 const VISUALIZER_FILE = path.join(PROJECT_ROOT, 'public', 'app.js');
 const README_FILE = path.join(PROJECT_ROOT, 'README.md');
 
@@ -63,7 +76,7 @@ server.registerTool(
   },
   async ({ path: rel }) => {
     const target = path.isAbsolute(rel) ? rel : path.join(PROJECT_ROOT, rel);
-    const raw = await readFile(target, 'utf8');
+  const raw = await fsp.readFile(target, 'utf8');
     const truncated = raw.length > 50_000;
     const content = truncated ? raw.slice(0, 50_000) + '\n<!-- TRUNCATED -->' : raw;
     const output = { path: target, truncated, content };
@@ -148,7 +161,7 @@ server.registerTool(
   },
   async () => {
     let code = '';
-    try { code = await readFile(VISUALIZER_FILE, 'utf8'); } catch { /* ignore */ }
+  try { code = await fsp.readFile(VISUALIZER_FILE, 'utf8'); } catch { /* ignore */ }
     const suggestions: string[] = [];
     if (!code) suggestions.push('Datei public/app.js konnte nicht gelesen werden.');
     // Heuristic checks
@@ -173,6 +186,126 @@ server.registerTool(
   }
 );
 
+// ========== FORMAT CODE (Prettier) ==========
+server.registerTool(
+  'format_code',
+  {
+    title: 'Code formatieren',
+    description: 'Formatiert eine Datei mit Prettier (benötigt Prettier in den Dependencies).',
+    inputSchema: { path: z.string() },
+    outputSchema: { formatted: z.boolean(), message: z.string() }
+  },
+  async ({ path: rel }) => {
+    const target = path.isAbsolute(rel) ? rel : path.join(PROJECT_ROOT, rel);
+  const prettier = await ensureDynamic('prettier');
+  const content = await fsp.readFile(target, 'utf8');
+    const config = await prettier.resolveConfig(target);
+    const formatted = await prettier.format(content, { ...(config || {}), filepath: target });
+    if (formatted !== content) {
+  await fsp.writeFile(target, formatted, 'utf8');
+      const output = { formatted: true, message: 'Datei formatiert.' };
+      return { content: [{ type: 'text', text: JSON.stringify(output) }], structuredContent: output };
+    }
+    const output = { formatted: false, message: 'Keine Änderungen nötig.' };
+    return { content: [{ type: 'text', text: JSON.stringify(output) }], structuredContent: output };
+  }
+);
+
+// ========== LIGHTHOUSE AUDIT ==========
+server.registerTool(
+  'lighthouse_audit',
+  {
+    title: 'Lighthouse Audit',
+    description: 'Führt einen Lighthouse Audit gegen eine URL aus (headless Chrome erforderlich).',
+    inputSchema: { url: z.string().url(), categories: z.array(z.enum(['performance','accessibility','best-practices','seo'])).optional() },
+    outputSchema: { scores: z.record(z.number()), warnings: z.array(z.string()).optional() }
+  },
+  async ({ url, categories }) => {
+  const { launch } = await ensureDynamic('chrome-launcher');
+  const lighthouse = await ensureDynamic('lighthouse');
+  const chrome = await launch({ chromeFlags: ['--headless'] });
+    try {
+  const result = await lighthouse.default(url, { port: chrome.port, onlyCategories: categories });
+      const scores: Record<string, number> = {};
+      for (const cat of Object.values(result.lhr.categories) as any[]) {
+        if (cat && cat.id) scores[cat.id] = cat.score;
+      }
+      const output = { scores, warnings: result.lhr.runWarnings };
+      return { content: [{ type: 'text', text: JSON.stringify(output, null, 2) }], structuredContent: output };
+    } finally {
+      await chrome.kill();
+    }
+  }
+);
+
+// ========== ANALYZE BPM ==========
+server.registerTool(
+  'analyze_bpm',
+  {
+    title: 'BPM analysieren',
+    description: 'Analysiert BPM einer Audiodatei mittels einfacher Onset-Erkennung & MusicTempo.',
+    inputSchema: { path: z.string() },
+    outputSchema: { bpm: z.number(), confidence: z.number(), onsets: z.array(z.number()) }
+  },
+  async ({ path: rel }) => {
+    const target = path.isAbsolute(rel) ? rel : path.join(PROJECT_ROOT, rel);
+  const buffer = await fsp.readFile(target);
+  const audioDecode = await ensureDynamic('audio-decode');
+  const audioBuffer = await audioDecode.default(buffer);
+    const channelData = audioBuffer.getChannelData(0);
+    const frameSize = 1024;
+    const hop = 512;
+    const energies: number[] = [];
+    for (let i = 0; i < channelData.length - frameSize; i += hop) {
+      let sum = 0;
+      for (let j = i; j < i + frameSize; j++) sum += channelData[j] * channelData[j];
+      energies.push(sum / frameSize);
+    }
+    const window = 43;
+    const avg: number[] = [];
+    for (let i = 0; i < energies.length; i++) {
+      let s = 0; let c = 0;
+      for (let w = Math.max(0, i - window); w < Math.min(energies.length, i + window); w++) { s += energies[w]; c++; }
+      avg.push(s / c);
+    }
+    const onsets: number[] = [];
+    for (let i = 1; i < energies.length; i++) {
+      if (energies[i] > avg[i] * 1.3 && energies[i] > energies[i - 1]) {
+        const time = (i * hop) / audioBuffer.sampleRate;
+        onsets.push(time);
+      }
+    }
+    const MusicTempo = (await import('music-tempo')).default;
+    const mt = new MusicTempo(onsets);
+    const output = { bpm: mt.tempo || 0, confidence: (mt.candidates?.[0]?.score || 0), onsets };
+    return { content: [{ type: 'text', text: JSON.stringify(output, null, 2) }], structuredContent: output };
+  }
+);
+
+// ========== OPEN PULL REQUEST ==========
+server.registerTool(
+  'open_pull_request',
+  {
+    title: 'Pull Request öffnen',
+    description: 'Erstellt einen Pull Request zwischen Branches (benötigt GITHUB_TOKEN & GITHUB_REPO).',
+    inputSchema: { title: z.string(), body: z.string().optional(), base: z.string().default('main'), head: z.string().default('main') },
+    outputSchema: { url: z.string() }
+  },
+  async ({ title, body, base, head }) => {
+    const token = process.env.GITHUB_TOKEN;
+    const repoFull = process.env.GITHUB_REPO;
+    if (!token || !repoFull) {
+      const msg = 'Fehlende Umgebungsvariablen GITHUB_TOKEN oder GITHUB_REPO.';
+      return { content: [{ type: 'text', text: msg }], isError: true };
+    }
+    const [owner, repo] = repoFull.split('/');
+    const octokit = new Octokit({ auth: token });
+  const pr = await octokit.rest.pulls.create({ owner, repo, title, body, base, head });
+    const output = { url: pr.data.html_url };
+    return { content: [{ type: 'text', text: JSON.stringify(output) }], structuredContent: output };
+  }
+);
+
 // Resource: visualizer code
 server.registerResource(
   'visualizer_code',
@@ -183,7 +316,7 @@ server.registerResource(
   },
   async (_uri, { name }) => {
     const target = name === 'app' ? VISUALIZER_FILE : README_FILE;
-    const text = await readFile(target, 'utf8');
+  const text = await fsp.readFile(target, 'utf8');
     return { contents: [{ uri: `file://visualizer/${name}`, text }] };
   }
 );

@@ -37,6 +37,27 @@ let songLoaded       = false;
 let isPlaying        = false; // Für den Toggle-Button
 let timeUpdateBound  = false; // verhindert doppelte Listener
 
+// Performance- / Qualitätssteuerung
+let frameCounter = 0;
+let lastFpsStamp = performance.now();
+let currentFps = 0;
+const TARGET_FPS = 55;
+const quality = { skipFactor: 1, particleRate: 1 };
+
+// Farb-Cache für Basisfarben je Modus
+let colorCache = {};
+function buildColorCache(total) {
+  const modes = ['rainbow','warm','cool','happy','dark'];
+  for (const m of modes) {
+    if (!colorCache[m] || colorCache[m].length !== total) {
+      colorCache[m] = new Array(total);
+      for (let i = 0; i < total; i++) {
+        colorCache[m][i] = computeColor(m, i, 0, total);
+      }
+    }
+  }
+}
+
 // ========== DRAG & DROP ==========
 dropZone.addEventListener('dragover', (e) => {
   e.preventDefault();
@@ -106,6 +127,7 @@ animationSelect.addEventListener('change', (e) => {
 });
 colorSelect.addEventListener('change', (e) => {
   currentColorMode = e.target.value;
+  if (bufferLength) buildColorCache(bufferLength);
 });
 sensitivityRange.addEventListener('input', (e) => {
   sensitivity = parseFloat(e.target.value);
@@ -167,6 +189,7 @@ async function handleFile(file) {
 
   bufferLength = analyser.frequencyBinCount;
   dataArray = new Uint8Array(bufferLength);
+  buildColorCache(bufferLength);
 
   songLoaded = true;
 
@@ -278,6 +301,21 @@ function animate(bpm) {
   if (!analyser) return; 
 
   analyser.getByteFrequencyData(dataArray);
+  // FPS-Messung & dynamische Qualitätsanpassung
+  frameCounter++;
+  const now = performance.now();
+  if (now - lastFpsStamp >= 1000) {
+    currentFps = (frameCounter * 1000) / (now - lastFpsStamp);
+    frameCounter = 0;
+    lastFpsStamp = now;
+    if (currentFps < TARGET_FPS - 8 && quality.skipFactor < 4) {
+      quality.skipFactor++;
+      quality.particleRate = Math.max(0.5, quality.particleRate - 0.15);
+    } else if (currentFps > TARGET_FPS + 5 && quality.skipFactor > 1) {
+      quality.skipFactor--;
+      quality.particleRate = Math.min(1.5, quality.particleRate + 0.15);
+    }
+  }
   resizeCanvasToDisplaySize(canvas);
   canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -311,7 +349,7 @@ function animate(bpm) {
 function drawBarsScene(data, bpm) {
   const barWidth = (canvas.width / bufferLength) * 2.0;
   let posX = 0;
-  for (let i = 0; i < bufferLength; i++) {
+  for (let i = 0; i < bufferLength; i += quality.skipFactor) {
     // Sensitivity * animationSize
     const barHeight = data[i] * animationSize * sensitivity;
     const [r, g, b] = getColor(i, barHeight, bufferLength);
@@ -321,65 +359,48 @@ function drawBarsScene(data, bpm) {
   }
 }
 
-// Particles
-let particleArray = [];
-class Particle {
-  constructor(x, y, size, velocity) {
-    this.x = x;
-    this.y = y;
-    this.size = size;
-    this.velocity = velocity;
-    this.alpha = 1.0;
+// Partikel Pool (Object Pooling)
+const MAX_POOL = 1200;
+const particlePool = Array.from({ length: MAX_POOL }, () => ({ x:0,y:0,size:0,velocity:0,alpha:0,active:false,index:0 }));
+function spawnParticle(x,y,size,velocity) {
+  for (let i=0;i<particlePool.length;i++) {
+    const p = particlePool[i];
+    if (!p.active) { p.x=x; p.y=y; p.size=size; p.velocity=velocity; p.alpha=1; p.active=true; p.index=i; return p; }
   }
-  update() {
-    this.y -= this.velocity;
-    this.alpha -= 0.01;
-  }
-  draw(ctx, color) {
-    ctx.save();
-    ctx.globalAlpha = this.alpha;
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
+  return null;
 }
 
 function drawParticlesScene(data, bpm) {
   let bassValue = getBassValue(data);
   // CreationChance -> vergrößert mit Sensitivity
-  let creationChance = 0.03 * sensitivity + bpm / 4000;
+  let creationChance = (0.025 * sensitivity + bpm / 5000) * quality.particleRate;
   if (Math.random() < creationChance) {
     let x = Math.random() * canvas.width;
     let y = canvas.height - 10;
     let size = (Math.random() * 8 + 4) * animationSize * sensitivity * 0.5;
     let velocity = (1 + bassValue / 50) * sensitivity;
-    particleArray.push(new Particle(x, y, size, velocity));
+    spawnParticle(x, y, size, velocity);
   }
-
-  // Performance-Schutz: Obergrenze für Partikel
-  const MAX_PARTICLES = Math.floor(800 * animationSize * sensitivity);
-  if (particleArray.length > MAX_PARTICLES) {
-    particleArray.splice(0, particleArray.length - MAX_PARTICLES);
-  }
-
-  for (let i = 0; i < particleArray.length; i++) {
-    let p = particleArray[i];
-    p.update();
-    const [r, g, b] = getColor(i, p.y, 1000);
-    p.draw(canvasCtx, `rgb(${r},${g},${b})`);
-    if (p.alpha <= 0) {
-      particleArray.splice(i, 1);
-      i--;
-    }
+  for (const p of particlePool) {
+    if (!p.active) continue;
+    p.y -= p.velocity;
+    p.alpha -= 0.01;
+    const [r, g, b] = getColor(p.index, p.y, 1000);
+    canvasCtx.save();
+    canvasCtx.globalAlpha = p.alpha;
+    canvasCtx.fillStyle = `rgb(${r},${g},${b})`;
+    canvasCtx.beginPath();
+    canvasCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    canvasCtx.fill();
+    canvasCtx.restore();
+    if (p.alpha <= 0 || p.y < -50) p.active = false;
   }
 }
 
 function drawCirclesScene(data, bpm) {
   let centerX = canvas.width / 2;
   let centerY = canvas.height / 2;
-  for (let i = 0; i < bufferLength; i += 8) {
+  for (let i = 0; i < bufferLength; i += 8 * quality.skipFactor) {
     let value = data[i] * animationSize * sensitivity;
     let [r, g, b] = getColor(i, value, bufferLength);
     canvasCtx.beginPath();
@@ -392,7 +413,7 @@ function drawCirclesScene(data, bpm) {
 
 function drawWaveScene(data, bpm) {
   canvasCtx.beginPath();
-  for (let i = 0; i < bufferLength; i++) {
+  for (let i = 0; i < bufferLength; i += quality.skipFactor) {
     let x = (i / (bufferLength - 1)) * canvas.width;
     let y = canvas.height / 2 - data[i] * 0.8 * animationSize * sensitivity;
     if (i === 0) canvasCtx.moveTo(x, y);
@@ -415,7 +436,7 @@ function drawSpiralScene(data, bpm) {
 
   canvasCtx.beginPath();
 
-  for (let i = 0; i < bufferLength; i++) {
+  for (let i = 0; i < bufferLength; i += quality.skipFactor) {
     let freqVal = data[i] * 0.5 * sensitivity;
     // Spiral-Radius + Frequenz-Effekt
     let radius = i * baseRadiusStep + freqVal * 0.3;
@@ -470,7 +491,7 @@ function drawRadialLinesScene(data, bpm) {
   let centerY = canvas.height / 2;
   let angleStep = (2 * Math.PI) / bufferLength;
 
-  for (let i = 0; i < bufferLength; i += 2) {
+  for (let i = 0; i < bufferLength; i += 2 * quality.skipFactor) {
     let val = data[i] * animationSize * sensitivity;
     let angle = i * angleStep;
 
@@ -510,18 +531,26 @@ function getBassValue(data) {
 }
 
 function getColor(index, amplitude, total) {
-  switch (currentColorMode) {
-    case 'warm':
-      return warmColor(index, amplitude, total);
-    case 'cool':
-      return coolColor(index, amplitude, total);
-    case 'happy':
-      return happyColor(index, amplitude, total);
-    case 'dark':
-      return darkColor(index, amplitude, total);
+  if (!colorCache[currentColorMode] || colorCache[currentColorMode].length !== total) {
+    buildColorCache(total);
+  }
+  const base = colorCache[currentColorMode][index];
+  const brighten = Math.min(40, amplitude / 6);
+  return [
+    Math.min(255, base[0] + brighten),
+    Math.min(255, base[1] + brighten / 2),
+    Math.min(255, base[2] + brighten / 3)
+  ];
+}
+
+function computeColor(mode, i, val, total) {
+  switch (mode) {
+    case 'warm': return warmColor(i, val, total);
+    case 'cool': return coolColor(i, val, total);
+    case 'happy': return happyColor(i, val, total);
+    case 'dark': return darkColor(i, val, total);
     case 'rainbow':
-    default:
-      return rainbowColor(index, amplitude, total);
+    default: return rainbowColor(i, val, total);
   }
 }
 

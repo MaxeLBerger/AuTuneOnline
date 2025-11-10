@@ -9,7 +9,9 @@
     "strict": false,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node"]
+  "types": ["node"],
+  "lib": ["ES2022", "DOM"],
+    "allowJs": true
   },
   "include": ["./**/*.ts"],
   "exclude": ["node_modules"]
