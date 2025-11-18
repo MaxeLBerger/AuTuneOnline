@@ -9,7 +9,7 @@ let bufferLength;
 const fileInput         = document.getElementById('fileInput');
 const fileNameLabel     = document.getElementById('fileNameLabel');
 const dropZone          = document.getElementById('dropZone');
-const audioPlayer       = document.getElementById('audioPlayer');
+let audioPlayer         = document.getElementById('audioPlayer');
 const timelineRange     = document.getElementById('timelineRange');
 const currentTimeLabel  = document.getElementById('currentTimeLabel');
 const durationLabel     = document.getElementById('durationLabel');
@@ -160,6 +160,12 @@ async function handleFile(file) {
   if (animationId) {
     cancelAnimationFrame(animationId);
   }
+
+  // Create a new audio element to avoid MediaElementSource reuse issue
+  const oldAudioPlayer = audioPlayer;
+  audioPlayer = document.createElement('audio');
+  audioPlayer.id = 'audioPlayer';
+  oldAudioPlayer.parentNode.replaceChild(audioPlayer, oldAudioPlayer);
 
   // ArrayBuffer einlesen
   const arrayBuffer = await file.arrayBuffer();
