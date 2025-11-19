@@ -9,7 +9,7 @@ let bufferLength;
 const fileInput         = document.getElementById('fileInput');
 const fileNameLabel     = document.getElementById('fileNameLabel');
 const dropZone          = document.getElementById('dropZone');
-const audioPlayer       = document.getElementById('audioPlayer');
+let audioPlayer         = document.getElementById('audioPlayer');
 const timelineRange     = document.getElementById('timelineRange');
 const currentTimeLabel  = document.getElementById('currentTimeLabel');
 const durationLabel     = document.getElementById('durationLabel');
@@ -44,16 +44,23 @@ let currentFps = 0;
 const TARGET_FPS = 55;
 const quality = { skipFactor: 1, particleRate: 1 };
 
-// Farb-Cache für Basisfarben je Modus
+// Farb-Cache für Basisfarben je Modus (vorab berechnet für bessere Performance)
 let colorCache = {};
+let cachedTotal = 0;
+
 function buildColorCache(total) {
+  // Nur neu bauen wenn Größe sich geändert hat
+  if (cachedTotal === total && Object.keys(colorCache).length === 5) {
+    return;
+  }
+  
   const modes = ['rainbow','warm','cool','happy','dark'];
+  cachedTotal = total;
+  
   for (const m of modes) {
-    if (!colorCache[m] || colorCache[m].length !== total) {
-      colorCache[m] = new Array(total);
-      for (let i = 0; i < total; i++) {
-        colorCache[m][i] = computeColor(m, i, 0, total);
-      }
+    colorCache[m] = new Array(total);
+    for (let i = 0; i < total; i++) {
+      colorCache[m][i] = computeColor(m, i, 0, total);
     }
   }
 }
@@ -154,14 +161,27 @@ async function handleFile(file) {
     cancelAnimationFrame(animationId);
   }
 
+  // Create a new audio element to avoid MediaElementSource reuse issue
+  const oldAudioPlayer = audioPlayer;
+  audioPlayer = document.createElement('audio');
+  audioPlayer.id = 'audioPlayer';
+  oldAudioPlayer.parentNode.replaceChild(audioPlayer, oldAudioPlayer);
+
   // ArrayBuffer einlesen
   const arrayBuffer = await file.arrayBuffer();
 
-  // BPM ermitteln (Fehler abfangen)
+  // BPM ermitteln (Fehler abfangen) mit Caching
   let bpm = 0;
   try {
-    const audioBufferForBPM = await audioContext.decodeAudioData(arrayBuffer.slice(0));
-    bpm = getBPMFromAudioBuffer(audioBufferForBPM, audioContext.sampleRate);
+    // Cache-Check basierend auf Dateiname und -größe
+    if (lastBPMResult.fileName === file.name && lastBPMResult.bpm > 0) {
+      bpm = lastBPMResult.bpm;
+      console.log('BPM aus Cache:', bpm);
+    } else {
+      const audioBufferForBPM = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+      bpm = getBPMFromAudioBuffer(audioBufferForBPM, audioContext.sampleRate);
+      lastBPMResult = { fileName: file.name, bpm };
+    }
     bpmDisplay.textContent = `BPM: ${bpm.toFixed(1)}`;
   } catch (err) {
     console.warn('BPM-Analyse fehlgeschlagen:', err);
@@ -248,7 +268,10 @@ function onTimeUpdate() {
   }
 }
 
-// ========== BPM ==========
+// ========== BPM (Optimiert) ==========
+// BPM-Cache um wiederholte Berechnungen zu vermeiden
+let lastBPMResult = { fileName: '', bpm: 0 };
+
 function getBPMFromAudioBuffer(audioBuffer, sampleRate) {
   const channelData = audioBuffer.getChannelData(0);
   return calcBPM(channelData, sampleRate);
@@ -256,29 +279,37 @@ function getBPMFromAudioBuffer(audioBuffer, sampleRate) {
 
 function calcBPM(channelData, sampleRate) {
   const segmentSize = 1024;
-  let energyArray = [];
+  const energyArray = [];
   let offset = 0;
 
+  // Optimiert: Direkte Berechnung ohne unnötige Zwischenvariablen
   while (offset < channelData.length) {
     let sum = 0;
-    for (let i = 0; i < segmentSize && offset + i < channelData.length; i++) {
-      sum += channelData[offset + i] ** 2;
+    const end = Math.min(offset + segmentSize, channelData.length);
+    for (let i = offset; i < end; i++) {
+      const sample = channelData[i];
+      sum += sample * sample;
     }
-    let avg = Math.sqrt(sum / segmentSize);
-    energyArray.push(avg);
+    energyArray.push(Math.sqrt(sum / segmentSize));
     offset += segmentSize;
   }
 
-  // Onsets
-  let onsets = [];
-  let localWindowSize = 43;
-  for (let i = 0; i < energyArray.length; i++) {
-    let start = Math.max(0, i - localWindowSize);
-    let slice = energyArray.slice(start, i);
-    let mean = slice.reduce((a, b) => a + b, 0) / (slice.length || 1);
-    let threshold = mean * 1.5;
-    if (energyArray[i] > threshold) {
-      let timeInSec = (i * segmentSize) / sampleRate;
+  // Onsets-Erkennung optimiert
+  const onsets = [];
+  const localWindowSize = 43;
+  const threshold = 1.5;
+  
+  for (let i = localWindowSize; i < energyArray.length; i++) {
+    // Rollierender Mittelwert ohne Array-Slice (effizienter)
+    let sum = 0;
+    const start = i - localWindowSize;
+    for (let j = start; j < i; j++) {
+      sum += energyArray[j];
+    }
+    const mean = sum / localWindowSize;
+    
+    if (energyArray[i] > mean * threshold) {
+      const timeInSec = (i * segmentSize) / sampleRate;
       onsets.push(timeInSec);
     }
   }
@@ -286,11 +317,13 @@ function calcBPM(channelData, sampleRate) {
   if (onsets.length < 2) {
     return 0;
   }
-  const intervals = [];
+  
+  // Intervalberechnung optimiert
+  let sumIntervals = 0;
   for (let i = 1; i < onsets.length; i++) {
-    intervals.push(onsets[i] - onsets[i - 1]);
+    sumIntervals += onsets[i] - onsets[i - 1];
   }
-  const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+  const avgInterval = sumIntervals / (onsets.length - 1);
   return 60 / avgInterval;
 }
 
@@ -348,12 +381,13 @@ function animate(bpm) {
 // ========== ANIMATIONS ==========
 function drawBarsScene(data, bpm) {
   const barWidth = (canvas.width / bufferLength) * 2.0;
+  const sizeMultiplier = animationSize * sensitivity;
   let posX = 0;
+  
   for (let i = 0; i < bufferLength; i += quality.skipFactor) {
-    // Sensitivity * animationSize
-    const barHeight = data[i] * animationSize * sensitivity;
-    const [r, g, b] = getColor(i, barHeight, bufferLength);
-    canvasCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+    const barHeight = data[i] * sizeMultiplier;
+    const color = getColor(i, barHeight, bufferLength);
+    canvasCtx.fillStyle = `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
     canvasCtx.fillRect(posX, canvas.height - barHeight, barWidth, barHeight);
     posX += barWidth + 1;
   }
@@ -371,114 +405,119 @@ function spawnParticle(x,y,size,velocity) {
 }
 
 function drawParticlesScene(data, bpm) {
-  let bassValue = getBassValue(data);
-  // CreationChance -> vergrößert mit Sensitivity
-  let creationChance = (0.025 * sensitivity + bpm / 5000) * quality.particleRate;
+  const bassValue = getBassValue(data);
+  const sizeMultiplier = animationSize * sensitivity * 0.5;
+  const creationChance = (0.025 * sensitivity + bpm / 5000) * quality.particleRate;
+  
   if (Math.random() < creationChance) {
-    let x = Math.random() * canvas.width;
-    let y = canvas.height - 10;
-    let size = (Math.random() * 8 + 4) * animationSize * sensitivity * 0.5;
-    let velocity = (1 + bassValue / 50) * sensitivity;
+    const x = Math.random() * canvas.width;
+    const y = canvas.height - 10;
+    const size = (Math.random() * 8 + 4) * sizeMultiplier;
+    const velocity = (1 + bassValue / 50) * sensitivity;
     spawnParticle(x, y, size, velocity);
   }
+  
+  // Optimiert: Batch canvas operations
   for (const p of particlePool) {
     if (!p.active) continue;
+    
     p.y -= p.velocity;
     p.alpha -= 0.01;
-    const [r, g, b] = getColor(p.index, p.y, 1000);
-    canvasCtx.save();
+    
+    if (p.alpha <= 0 || p.y < -50) {
+      p.active = false;
+      continue;
+    }
+    
+    const color = getColor(p.index, p.y, 1000);
     canvasCtx.globalAlpha = p.alpha;
-    canvasCtx.fillStyle = `rgb(${r},${g},${b})`;
+    canvasCtx.fillStyle = `rgb(${color[0]},${color[1]},${color[2]})`;
     canvasCtx.beginPath();
     canvasCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
     canvasCtx.fill();
-    canvasCtx.restore();
-    if (p.alpha <= 0 || p.y < -50) p.active = false;
   }
+  canvasCtx.globalAlpha = 1.0; // Reset
 }
 
 function drawCirclesScene(data, bpm) {
-  let centerX = canvas.width / 2;
-  let centerY = canvas.height / 2;
-  for (let i = 0; i < bufferLength; i += 8 * quality.skipFactor) {
-    let value = data[i] * animationSize * sensitivity;
-    let [r, g, b] = getColor(i, value, bufferLength);
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+  const sizeMultiplier = animationSize * sensitivity;
+  const step = 8 * quality.skipFactor;
+  
+  canvasCtx.lineWidth = 2;
+  for (let i = 0; i < bufferLength; i += step) {
+    const value = data[i] * sizeMultiplier;
+    const color = getColor(i, value, bufferLength);
+    canvasCtx.strokeStyle = `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
     canvasCtx.beginPath();
     canvasCtx.arc(centerX, centerY, value, 0, 2 * Math.PI);
-    canvasCtx.strokeStyle = `rgb(${r}, ${g}, ${b})`;
-    canvasCtx.lineWidth = 2;
     canvasCtx.stroke();
   }
 }
 
 function drawWaveScene(data, bpm) {
+  const halfHeight = canvas.height / 2;
+  const sizeMultiplier = 0.8 * animationSize * sensitivity;
+  const widthScale = canvas.width / (bufferLength - 1);
+  
   canvasCtx.beginPath();
+  canvasCtx.strokeStyle = 'rgb(255, 255, 255)';
+  canvasCtx.lineWidth = 2;
+  
   for (let i = 0; i < bufferLength; i += quality.skipFactor) {
-    let x = (i / (bufferLength - 1)) * canvas.width;
-    let y = canvas.height / 2 - data[i] * 0.8 * animationSize * sensitivity;
+    const x = i * widthScale;
+    const y = halfHeight - data[i] * sizeMultiplier;
     if (i === 0) canvasCtx.moveTo(x, y);
     else canvasCtx.lineTo(x, y);
   }
-  canvasCtx.strokeStyle = 'rgb(255, 255, 255)';
-  canvasCtx.lineWidth = 2;
   canvasCtx.stroke();
 }
 
 function drawSpiralScene(data, bpm) {
-  let centerX = canvas.width / 2;
-  let centerY = canvas.height / 2;
-
-  // Bisschen aufteilen für mehr Dynamik
-  let angleStep = (2 * Math.PI) / bufferLength;
-  let maxRadius = Math.min(centerX, centerY);
-  // Normaler Radius pro Index
-  let baseRadiusStep = (maxRadius / bufferLength) * animationSize;
-
-  canvasCtx.beginPath();
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+  const angleStep = (2 * Math.PI) / bufferLength;
+  const maxRadius = Math.min(centerX, centerY);
+  const baseRadiusStep = (maxRadius / bufferLength) * animationSize;
+  const bpmRotation = (bpm / 180) * 0.01;
+  const freqMultiplier = 0.5 * sensitivity;
+  
+  canvasCtx.lineWidth = 2;
 
   for (let i = 0; i < bufferLength; i += quality.skipFactor) {
-    let freqVal = data[i] * 0.5 * sensitivity;
-    // Spiral-Radius + Frequenz-Effekt
-    let radius = i * baseRadiusStep + freqVal * 0.3;
+    const freqVal = data[i] * freqMultiplier;
+    const radius = i * baseRadiusStep + freqVal * 0.3;
+    const angle = i * angleStep + bpmRotation * i;
+    const x = centerX + radius * Math.cos(angle);
+    const y = centerY + radius * Math.sin(angle);
 
-    // BPM-Einfluss auf die Rotation
-    let angle = i * angleStep + (bpm / 180) * i * 0.01;
-    let x = centerX + radius * Math.cos(angle);
-    let y = centerY + radius * Math.sin(angle);
-
-    if (i === 0) {
-      canvasCtx.moveTo(x, y);
-    } else {
-      canvasCtx.lineTo(x, y);
-    }
-    let [r, g, b] = getColor(i, freqVal, bufferLength);
-    canvasCtx.strokeStyle = `rgb(${r}, ${g}, ${b})`;
-    canvasCtx.lineWidth = 2;
+    const color = getColor(i, freqVal, bufferLength);
+    canvasCtx.strokeStyle = `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+    canvasCtx.beginPath();
+    canvasCtx.moveTo(centerX, centerY);
+    canvasCtx.lineTo(x, y);
+    canvasCtx.stroke();
   }
-  canvasCtx.stroke();
 }
 
 function drawGridScene(data, bpm) {
-  // Wir machen das Grid etwas feiner
-  // Bisher: sqrt(bufferLength) => 16 bei 256 => 16x16 Raster
-  // => Wir erhöhen es, z.B. * sensitivity
-  let baseCells = Math.floor(Math.sqrt(bufferLength));
-  let cellsPerRow = baseCells + Math.floor(sensitivity * 4); // je höher sensitivity, desto mehr Zellen
-
-  let cellWidth = canvas.width / cellsPerRow;
-  let cellHeight = canvas.height / cellsPerRow;
+  const baseCells = Math.floor(Math.sqrt(bufferLength));
+  const cellsPerRow = baseCells + Math.floor(sensitivity * 4);
+  const cellWidth = canvas.width / cellsPerRow;
+  const cellHeight = canvas.height / cellsPerRow;
+  const sizeMultiplier = animationSize * sensitivity;
 
   let index = 0;
   for (let row = 0; row < cellsPerRow; row++) {
     for (let col = 0; col < cellsPerRow; col++) {
-      if (index >= data.length) index = 0; 
-      // Wir loopen durch data (kann man anpassen)
+      if (index >= data.length) index = 0;
 
-      let val = data[index] * animationSize * sensitivity;
-      let [r, g, b] = getColor(index, val, bufferLength);
-      let alpha = Math.min(1, val / 255 + 0.1);
+      const val = data[index] * sizeMultiplier;
+      const color = getColor(index, val, bufferLength);
+      const alpha = Math.min(1, val / 255 + 0.1);
 
-      canvasCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      canvasCtx.fillStyle = `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha})`;
       canvasCtx.fillRect(col * cellWidth, row * cellHeight, cellWidth, cellHeight);
 
       index++;
@@ -487,23 +526,25 @@ function drawGridScene(data, bpm) {
 }
 
 function drawRadialLinesScene(data, bpm) {
-  let centerX = canvas.width / 2;
-  let centerY = canvas.height / 2;
-  let angleStep = (2 * Math.PI) / bufferLength;
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+  const angleStep = (2 * Math.PI) / bufferLength;
+  const sizeMultiplier = animationSize * sensitivity * 1.5;
+  const step = 2 * quality.skipFactor;
 
-  for (let i = 0; i < bufferLength; i += 2 * quality.skipFactor) {
-    let val = data[i] * animationSize * sensitivity;
-    let angle = i * angleStep;
-
-    let [r, g, b] = getColor(i, val, bufferLength);
+  canvasCtx.lineWidth = 2;
+  for (let i = 0; i < bufferLength; i += step) {
+    const val = data[i] * sizeMultiplier;
+    const angle = i * angleStep;
+    const color = getColor(i, val, bufferLength);
+    
+    canvasCtx.strokeStyle = `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
     canvasCtx.beginPath();
     canvasCtx.moveTo(centerX, centerY);
-    let length = val * 1.5;
-    let x2 = centerX + length * Math.cos(angle);
-    let y2 = centerY + length * Math.sin(angle);
-    canvasCtx.lineTo(x2, y2);
-    canvasCtx.strokeStyle = `rgb(${r}, ${g}, ${b})`;
-    canvasCtx.lineWidth = 2;
+    canvasCtx.lineTo(
+      centerX + val * Math.cos(angle),
+      centerY + val * Math.sin(angle)
+    );
     canvasCtx.stroke();
   }
 }
@@ -523,12 +564,16 @@ function resizeCanvasToDisplaySize(canvas) {
 }
 
 function getBassValue(data) {
+  const count = Math.min(5, data.length);
   let bassValue = 0;
-  for (let i = 0; i < 5 && i < data.length; i++) {
+  for (let i = 0; i < count; i++) {
     bassValue += data[i];
   }
-  return bassValue / 5;
+  return bassValue / count;
 }
+
+// Reusable color array um Allokationen zu vermeiden
+const reusableColor = [0, 0, 0];
 
 function getColor(index, amplitude, total) {
   if (!colorCache[currentColorMode] || colorCache[currentColorMode].length !== total) {
@@ -536,11 +581,12 @@ function getColor(index, amplitude, total) {
   }
   const base = colorCache[currentColorMode][index];
   const brighten = Math.min(40, amplitude / 6);
-  return [
-    Math.min(255, base[0] + brighten),
-    Math.min(255, base[1] + brighten / 2),
-    Math.min(255, base[2] + brighten / 3)
-  ];
+  
+  // Reuse array statt neue zu erstellen
+  reusableColor[0] = Math.min(255, base[0] + brighten);
+  reusableColor[1] = Math.min(255, base[1] + brighten / 2);
+  reusableColor[2] = Math.min(255, base[2] + brighten / 3);
+  return reusableColor;
 }
 
 function computeColor(mode, i, val, total) {

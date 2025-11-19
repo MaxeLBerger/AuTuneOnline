@@ -1,4 +1,4 @@
-﻿name: Update Portfolio on Push
+name: Update Portfolio on Push
 
 on:
   push:
@@ -8,7 +8,14 @@ jobs:
   trigger-portfolio-update:
     runs-on: ubuntu-latest
     steps:
+      # This workflow triggers portfolio updates when AuTuneOnline changes
+      # To enable: Settings → Secrets → Actions → New repository secret
+      # Name: PORTFOLIO_UPDATE_TOKEN
+      # Value: GitHub Personal Access Token with 'repo' and 'workflow' scopes
+      # If not configured, this step will be skipped (not fail)
       - name: Trigger Portfolio Submodule Update
+        # Allow the workflow to pass even if this step fails (e.g., missing token)
+        continue-on-error: true
         uses: peter-evans/repository-dispatch@v2
         with:
           token: ${{ secrets.PORTFOLIO_UPDATE_TOKEN }}
