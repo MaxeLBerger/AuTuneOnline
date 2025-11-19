@@ -1,11 +1,38 @@
-# Audio Visualizer Pro
+# AuTune Online - Audio Visualizer Pro
 
-Ein professionelles Audio-Visualisierungs-Tool, das:
+Ein professionelles, webbasiertes Audio-Visualisierungs-Tool mit BPM-Erkennung und verschiedenen Darstellungsmodi.
 
-- MP3-Upload (per Drag & Drop oder File-Dialog)
-- Frequenzanalyse via Web Audio API
-- BPM-Erkennung
-- Visuelle Effekte (Bars + Partikel)
+## 🎨 Visualisierungs-Modi
+
+Entdecke verschiedene Arten, deine Musik zu sehen:
+
+| Circles | Grid |
+|:---:|:---:|
+| ![Circles Mode](images/circles.png) | ![Grid Mode](images/grid.png) |
+
+| Spiral | Waves |
+|:---:|:---:|
+| ![Spiral Mode](images/spiral.png) | ![Waves Mode](images/waves.png) |
+
+## 🌈 Farbschemata
+
+Passe die Stimmung mit verschiedenen Farbmodi an (z.B. Radial Lines):
+
+| Rainbow | Warm |
+|:---:|:---:|
+| ![Radial Rainbow](images/radial_rainbow.png) | ![Radial Warm](images/radial_warm.png) |
+
+| Cool | Happy |
+|:---:|:---:|
+| ![Radial Cool](images/radial_cool.png) | ![Radial Happy](images/radial_happy.png) |
+
+## ✨ Features
+
+- 🎵 **MP3-Upload**: Einfach per Drag & Drop oder Dateiauswahl
+- 📊 **Frequenzanalyse**: Echtzeit-Analyse via Web Audio API
+- 🥁 **BPM-Erkennung**: Automatische Tempo-Erkennung
+- 🎨 **Visuelle Effekte**: Bars, Partikel, Kreise, Wellen, Spiralen, Grid
+- ⌨️ **Steuerung**: Tastatur-Shortcuts (Space, Pfeiltasten) und Accessibility-Support
 
 ## Quick Start
 
